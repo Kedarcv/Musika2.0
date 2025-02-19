@@ -1,0 +1,40 @@
+Demo Accounts for Musika Food Delivery App
+
+1. Customer Account
+   - Email: user@example.com
+   - Password: password123
+   - Status: Active
+   - Features: Can order food, track deliveries, rate restaurants/riders
+
+2. Restaurant Account
+   - Email: restaurant@example.com
+   - Password: password123
+   - Status: Approved
+   - Features: Can manage menu, handle orders, view analytics
+
+3. Rider Account
+   - Email: rider@example.com
+   - Password: password123
+   - Status: Approved
+   - Features: Can manage deliveries, update status, view earnings
+
+4. Admin Account
+   - Email: admin@example.com
+   - Password: password123
+   - Role: Super Admin
+   - Status: Active
+   - Features: Full access to all admin features
+     * User management
+     * Restaurant management
+     * Rider management
+     * Order management
+     * Analytics
+     * System settings
+
+Note: All demo accounts are pre-approved and verified for immediate use.
+You can also use Google Sign-In for customer accounts.
+
+To create these demo accounts:
+1. Make sure MongoDB is running
+2. Navigate to the backend directory
+3. Run: node scripts/createAllDemoAccounts.js
