@@ -1,267 +1,138 @@
-const asyncHandler = require('express-async-handler');
-const jwt = require('jsonwebtoken');
-const Rider = require('../models/riderModel');
-const Order = require('../models/orderModel');
-const { ValidationError, AuthenticationError } = require('../middleware/errorMiddleware');
+const admin = require('firebase-admin');
 
-// Generate JWT
-const generateToken = (id) => {
-  return jwt.sign({ id, role: 'rider' }, process.env.JWT_SECRET, {
-    expiresIn: '30d',
-  });
+// Function to get all riders
+exports.getAllRiders = async (req, res) => {
+    try {
+        const ridersSnapshot = await admin.firestore().collection('riders').get();
+        const riders = ridersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        res.status(200).json(riders);
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching riders', error });
+    }
 };
 
-// @desc    Register new rider
-// @route   POST /api/riders
-// @access  Public
-const registerRider = asyncHandler(async (req, res) => {
-  const {
-    name,
-    email,
-    password,
-    phone,
-    vehicleType,
-    vehicleNumber,
-    licenseNumber,
-    currentLocation,
-  } = req.body;
-
-  // Validate input
-  if (!name || !email || !password || !phone || !vehicleType || !vehicleNumber || !licenseNumber) {
-    throw new ValidationError('Please fill in all required fields');
-  }
-
-  // Check if rider exists
-  const riderExists = await Rider.findOne({ email });
-  if (riderExists) {
-    throw new ValidationError('Rider already exists');
-  }
-
-  // Create rider
-  const rider = await Rider.create({
-    name,
-    email,
-    password,
-    phone,
-    vehicleType,
-    vehicleNumber,
-    licenseNumber,
-    currentLocation,
-  });
-
-  if (rider) {
-    res.status(201).json({
-      _id: rider._id,
-      name: rider.name,
-      email: rider.email,
-      status: rider.status,
-      token: generateToken(rider._id),
-    });
-  } else {
-    throw new Error('Invalid rider data');
-  }
-});
-
-// @desc    Authenticate rider
-// @route   POST /api/riders/login
-// @access  Public
-const loginRider = asyncHandler(async (req, res) => {
-  const { email, password } = req.body;
-
-  const rider = await Rider.findOne({ email });
-
-  if (rider && (await rider.matchPassword(password))) {
-    if (rider.status !== 'approved') {
-      throw new AuthenticationError('Your account is pending approval');
+// Function to create a new rider
+exports.createRider = async (req, res) => {
+    try {
+        const newRider = req.body;
+        const riderRef = await admin.firestore().collection('riders').add(newRider);
+        res.status(201).json({ id: riderRef.id, ...newRider });
+    } catch (error) {
+        res.status(500).json({ message: 'Error creating rider', error });
     }
-
-    res.json({
-      _id: rider._id,
-      name: rider.name,
-      email: rider.email,
-      status: rider.status,
-      token: generateToken(rider._id),
-    });
-  } else {
-    throw new AuthenticationError('Invalid email or password');
-  }
-});
-
-// @desc    Get rider profile
-// @route   GET /api/riders/profile
-// @access  Private
-const getRiderProfile = asyncHandler(async (req, res) => {
-  const rider = await Rider.findById(req.user._id).select('-password');
-  
-  if (rider) {
-    res.json(rider);
-  } else {
-    throw new Error('Rider not found');
-  }
-});
-
-// @desc    Update rider profile
-// @route   PUT /api/riders/profile
-// @access  Private
-const updateRiderProfile = asyncHandler(async (req, res) => {
-  const rider = await Rider.findById(req.user._id);
-
-  if (rider) {
-    rider.name = req.body.name || rider.name;
-    rider.email = req.body.email || rider.email;
-    rider.phone = req.body.phone || rider.phone;
-    rider.vehicleType = req.body.vehicleType || rider.vehicleType;
-    rider.vehicleNumber = req.body.vehicleNumber || rider.vehicleNumber;
-    rider.licenseNumber = req.body.licenseNumber || rider.licenseNumber;
-    rider.preferences = req.body.preferences || rider.preferences;
-
-    if (req.body.password) {
-      rider.password = req.body.password;
-    }
-
-    const updatedRider = await rider.save();
-
-    res.json({
-      _id: updatedRider._id,
-      name: updatedRider.name,
-      email: updatedRider.email,
-      status: updatedRider.status,
-      token: generateToken(updatedRider._id),
-    });
-  } else {
-    throw new Error('Rider not found');
-  }
-});
-
-// @desc    Update rider location
-// @route   PUT /api/riders/location
-// @access  Private
-const updateLocation = asyncHandler(async (req, res) => {
-  const { coordinates } = req.body;
-
-  const rider = await Rider.findById(req.user._id);
-  if (!rider) {
-    throw new Error('Rider not found');
-  }
-
-  await rider.updateLocation(coordinates);
-
-  // If rider has an active order, update order's rider location
-  if (rider.activeOrder) {
-    const order = await Order.findById(rider.activeOrder);
-    if (order) {
-      await order.updateRiderLocation(coordinates);
-      
-      // Notify connected clients about location update
-      req.io.to(`order_${order._id}`).emit('location_update', {
-        orderId: order._id,
-        location: coordinates,
-      });
-    }
-  }
-
-  res.json({ message: 'Location updated successfully' });
-});
-
-// @desc    Update rider availability
-// @route   PUT /api/riders/availability
-// @access  Private
-const updateAvailability = asyncHandler(async (req, res) => {
-  const { isAvailable } = req.body;
-
-  const rider = await Rider.findById(req.user._id);
-  if (!rider) {
-    throw new Error('Rider not found');
-  }
-
-  rider.isAvailable = isAvailable;
-  await rider.save();
-
-  res.json({ message: 'Availability updated successfully' });
-});
-
-// @desc    Get rider's active order
-// @route   GET /api/riders/active-order
-// @access  Private
-const getActiveOrder = asyncHandler(async (req, res) => {
-  const rider = await Rider.findById(req.user._id);
-  if (!rider || !rider.activeOrder) {
-    return res.json(null);
-  }
-
-  const order = await Order.findById(rider.activeOrder)
-    .populate('user', 'name phone')
-    .populate('restaurant', 'name address phone');
-
-  res.json(order);
-});
-
-// @desc    Get rider's earnings
-// @route   GET /api/riders/earnings
-// @access  Private
-const getRiderEarnings = asyncHandler(async (req, res) => {
-  const { startDate, endDate } = req.query;
-
-  const rider = await Rider.findById(req.user._id);
-  if (!rider) {
-    throw new Error('Rider not found');
-  }
-
-  const earnings = rider.earnings.history.filter(earning => {
-    const earningDate = new Date(earning.date);
-    return earningDate >= new Date(startDate) && earningDate <= new Date(endDate);
-  });
-
-  const totalEarnings = earnings.reduce((sum, earning) => sum + earning.amount, 0);
-  const pendingPayouts = earnings
-    .filter(earning => earning.status === 'pending')
-    .reduce((sum, earning) => sum + earning.amount, 0);
-
-  res.json({
-    earnings,
-    totalEarnings,
-    pendingPayouts,
-  });
-});
-
-// @desc    Get rider's statistics
-// @route   GET /api/riders/statistics
-// @access  Private
-const getRiderStatistics = asyncHandler(async (req, res) => {
-  const rider = await Rider.findById(req.user._id);
-  if (!rider) {
-    throw new Error('Rider not found');
-  }
-
-  res.json(rider.statistics);
-});
-
-// @desc    Update device token
-// @route   PUT /api/riders/device-token
-// @access  Private
-const updateDeviceToken = asyncHandler(async (req, res) => {
-  const { token } = req.body;
-
-  const rider = await Rider.findById(req.user._id);
-  if (!rider) {
-    throw new Error('Rider not found');
-  }
-
-  rider.deviceToken = token;
-  await rider.save();
-
-  res.json({ message: 'Device token updated successfully' });
-});
-
-module.exports = {
-  registerRider,
-  loginRider,
-  getRiderProfile,
-  updateRiderProfile,
-  updateLocation,
-  updateAvailability,
-  getActiveOrder,
-  getRiderEarnings,
-  getRiderStatistics,
-  updateDeviceToken,
 };
+
+// Function to register a new rider
+exports.registerRider = async (req, res) => {
+    const { email, password } = req.body;
+    try {
+        const riderCredential = await admin.auth().createUser({
+            email,
+            password,
+        });
+        res.status(201).json({ uid: riderCredential.uid, email: riderCredential.email });
+    } catch (error) {
+        res.status(400).json({ message: 'Error registering rider', error });
+    }
+};
+
+// Function to login a rider
+exports.loginRider = async (req, res) => {
+    const { email, password } = req.body;
+    try {
+        const riderCredential = await admin.auth().signInWithEmailAndPassword(email, password);
+        res.status(200).json({ uid: riderCredential.user.uid, email: riderCredential.user.email });
+    } catch (error) {
+        res.status(400).json({ message: 'Error logging in rider', error });
+    }
+};
+
+// Function to get rider profile
+exports.getRiderProfile = async (req, res) => {
+    const riderId = req.user.id; // Assuming rider ID is set in the request
+    try {
+        const riderDoc = await admin.firestore().collection('riders').doc(riderId).get();
+        if (!riderDoc.exists) {
+            return res.status(404).json({ message: 'Rider not found' });
+        }
+        res.status(200).json({ id: riderDoc.id, ...riderDoc.data() });
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching rider profile', error });
+    }
+};
+
+// Function to update rider profile
+exports.updateRiderProfile = async (req, res) => {
+    const riderId = req.user.id; // Assuming rider ID is set in the request
+    const updatedData = req.body;
+    try {
+        await admin.firestore().collection('riders').doc(riderId).update(updatedData);
+        res.status(200).json({ message: 'Rider profile updated successfully' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error updating rider profile', error });
+    }
+};
+
+// Function to update rider location
+exports.updateLocation = async (req, res) => {
+    const riderId = req.user.id; // Assuming rider ID is set in the request
+    const { currentLocation } = req.body;
+    try {
+        await admin.firestore().collection('riders').doc(riderId).update({ currentLocation });
+        res.status(200).json({ message: 'Rider location updated successfully' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error updating rider location', error });
+    }
+};
+
+// Function to update rider availability
+exports.updateAvailability = async (req, res) => {
+    const riderId = req.user.id; // Assuming rider ID is set in the request
+    const { isAvailable } = req.body;
+    try {
+        await admin.firestore().collection('riders').doc(riderId).update({ isAvailable });
+        res.status(200).json({ message: 'Rider availability updated successfully' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error updating rider availability', error });
+    }
+};
+
+// Function to get active order
+exports.getActiveOrder = async (req, res) => {
+    const riderId = req.user.id; // Assuming rider ID is set in the request
+    try {
+        const orderSnapshot = await admin.firestore().collection('orders').where('riderId', '==', riderId).where('status', '==', 'active').get();
+        const orders = orderSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        res.status(200).json(orders);
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching active order', error });
+    }
+};
+
+// Function to get rider earnings
+exports.getRiderEarnings = async (req, res) => {
+    const riderId = req.user.id; // Assuming rider ID is set in the request
+    // Implement earnings logic here
+    res.status(200).json({ message: 'Earnings data for rider', riderId });
+};
+
+// Function to get rider statistics
+exports.getRiderStatistics = async (req, res) => {
+    const riderId = req.user.id; // Assuming rider ID is set in the request
+    // Implement statistics logic here
+    res.status(200).json({ message: 'Statistics data for rider', riderId });
+};
+
+// Function to update device token
+exports.updateDeviceToken = async (req, res) => {
+    const riderId = req.user.id; // Assuming rider ID is set in the request
+    const { deviceToken } = req.body;
+    try {
+        await admin.firestore().collection('riders').doc(riderId).update({ deviceToken });
+        res.status(200).json({ message: 'Device token updated successfully' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error updating device token', error });
+    }
+};
+
+// Additional functions for updating and deleting riders can be added here

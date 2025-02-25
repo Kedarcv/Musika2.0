@@ -1,112 +1,72 @@
-const asyncHandler = require('express-async-handler');
-const { auth, db } = require('../config/firebase-admin');
+const admin = require('firebase-admin');
+const { auth, db } = require('../config/firebase-admin'); // Updated import
 
-// @desc    Register new user
-// @route   POST /api/users
-// @access  Public
-const registerUser = asyncHandler(async (req, res) => {
-  const { name, email, password } = req.body;
+// Function to get all users
+exports.getAllUsers = async (req, res) => {
+    try {
+        const usersSnapshot = await db.collection('users').get();
+        const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        res.status(200).json(users);
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching users', error });
+    }
+};
 
-  // Create user in Firebase Auth
-  const userRecord = await auth.createUser({
-    email,
-    password,
-    displayName: name,
-  });
+// Function to create a new user
+exports.createUser = async (req, res) => {
+    try {
+        const newUser = req.body;
+        const userRef = await db.collection('users').add(newUser);
+        res.status(201).json({ id: userRef.id, ...newUser });
+    } catch (error) {
+        res.status(500).json({ message: 'Error creating user', error });
+    }
+};
 
-  // Store additional user data in Firestore
-  await db.collection('users').doc(userRecord.uid).set({
-    name,
-    email,
-    role: 'customer',
-    createdAt: new Date().toISOString(),
-  });
+// Function to register a new user
+exports.registerUser = async (req, res) => {
+    const { email, password } = req.body;
+    try {
+        const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+        res.status(201).json({ uid: userCredential.user.uid, email: userCredential.user.email });
+    } catch (error) {
+        res.status(400).json({ message: 'Error registering user', error });
+    }
+};
 
-  // Get ID token
-  const token = await auth.createCustomToken(userRecord.uid);
+// Function to login a user
+exports.loginUser = async (req, res) => {
+    const { email, password } = req.body;
+    try {
+        const userCredential = await auth.signInWithEmailAndPassword(email, password);
+        res.status(200).json({ uid: userCredential.user.uid, email: userCredential.user.email });
+    } catch (error) {
+        res.status(400).json({ message: 'Error logging in user', error });
+    }
+};
 
-  res.status(201).json({
-    id: userRecord.uid,
-    name: userRecord.displayName,
-    email: userRecord.email,
-    role: 'customer',
-    token,
-  });
-});
+// Function to get user profile
+exports.getUserProfile = async (req, res) => {
+    const userId = req.user.id; // Assuming user ID is set in the request
+    try {
+        const userDoc = await db.collection('users').doc(userId).get();
+        if (!userDoc.exists) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+        res.status(200).json({ id: userDoc.id, ...userDoc.data() });
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching user profile', error });
+    }
+};
 
-// @desc    Authenticate a user
-// @route   POST /api/users/login
-// @access  Public
-const loginUser = asyncHandler(async (req, res) => {
-  const { email } = req.body;
-
-  // Find user by email in Firebase Auth
-  const userRecord = await auth.getUserByEmail(email);
-
-  // Get user data from Firestore
-  const userDoc = await db.collection('users').doc(userRecord.uid).get();
-  const userData = userDoc.data();
-
-  // Create custom token
-  const token = await auth.createCustomToken(userRecord.uid);
-
-  res.json({
-    id: userRecord.uid,
-    name: userRecord.displayName,
-    email: userRecord.email,
-    role: userData.role,
-    token,
-  });
-});
-
-// @desc    Get user profile
-// @route   GET /api/users/profile
-// @access  Private
-const getUserProfile = asyncHandler(async (req, res) => {
-  const userDoc = await db.collection('users').doc(req.user.id).get();
-  const userData = userDoc.data();
-
-  res.json({
-    id: req.user.id,
-    name: userData.name,
-    email: userData.email,
-    role: userData.role,
-  });
-});
-
-// @desc    Update user profile
-// @route   PUT /api/users/profile
-// @access  Private
-const updateUserProfile = asyncHandler(async (req, res) => {
-  const { name, email } = req.body;
-
-  // Update in Firebase Auth
-  await auth.updateUser(req.user.id, {
-    displayName: name,
-    email,
-  });
-
-  // Update in Firestore
-  await db.collection('users').doc(req.user.id).update({
-    name,
-    email,
-    updatedAt: new Date().toISOString(),
-  });
-
-  const userDoc = await db.collection('users').doc(req.user.id).get();
-  const userData = userDoc.data();
-
-  res.json({
-    id: req.user.id,
-    name: userData.name,
-    email: userData.email,
-    role: userData.role,
-  });
-});
-
-module.exports = {
-  registerUser,
-  loginUser,
-  getUserProfile,
-  updateUserProfile,
+// Function to update user profile
+exports.updateUserProfile = async (req, res) => {
+    const userId = req.user.id; // Assuming user ID is set in the request
+    const updatedData = req.body;
+    try {
+        await db.collection('users').doc(userId).update(updatedData);
+        res.status(200).json({ message: 'User profile updated successfully' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error updating user profile', error });
+    }
 };

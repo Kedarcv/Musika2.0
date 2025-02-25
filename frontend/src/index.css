@@ -1,41 +1,23 @@
+/* Global Styles */
 * {
+  box-sizing: border-box;
   margin: 0;
   padding: 0;
-  box-sizing: border-box;
-}
-
-:root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
 }
 
 body {
-  margin: 0;
-  min-width: 320px;
-  min-height: 100vh;
-  background-color: #F6F6F6;
-  color: #2D2D2D;
+  font-family: 'Roboto', sans-serif;
+  background-color: #f4f6f8;
+  color: #333;
 }
 
 a {
-  color: inherit;
   text-decoration: none;
+  color: inherit;
 }
 
-#root {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
+button {
+  cursor: pointer;
 }
 
-@media (prefers-color-scheme: dark) {
-  body {
-    background-color: #F6F6F6;
-    color: #2D2D2D;
-  }
-}
+/* Add any additional global styles here */
